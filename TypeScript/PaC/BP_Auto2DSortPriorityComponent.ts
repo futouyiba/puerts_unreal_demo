@@ -1,62 +1,47 @@
-import * as UE from 'ue'
+import * as UE from 'ue';
 
 /**
- * Puerts translation of BP_Auto2DSortPriorityComponent.SortPriority
- *
- * Blueprint summary:
- * - 获取拥有者 Actor
- * - 根据传入的 ComponentClass 在 Actor 上收集组件数组
- * - 遍历组件，尝试转换为 PrimitiveComponent
- * - 计算排序优先级：
- *   - 若 bSortOnOwningActorLocation 为 true：用 Owner 的世界位置
- *   - 否则：用该组件的世界位置
- *   - 取位置向量的 Y 分量，FTrunc 成整数
- * - 调用 SetTranslucentSortPriority(priority)
+ * BP_Auto2DSortPriorityComponent 的 Puerts/TS 实现（class 风格）
+ * 等价蓝图函数：SortPriority(Component Class)
  */
-export function SortPriority(self: UE.ActorComponent, ComponentClass?: UE.Class): void {
-  if (!self) return;
+export default class BP_Auto2DSortPriorityComponent_TS extends UE.ActorComponent {
+  // 蓝图同名变量：是否按拥有者位置排序
+  bSortOnOwningActorLocation: boolean = false;
 
-  // 1) 获取拥有者
-  const owner = self.GetOwner();
-  if (!owner) return;
+  /**
+   * 等价于蓝图函数：SortPriority(Component Class)
+   * @param ComponentClass 需要遍历/筛选的组件类（例如 UE.PrimitiveComponent.StaticClass() 或具体子类）
+   */
+  SortPriority(ComponentClass?: UE.Class): void {
+    const owner = this.GetOwner();
+    if (!owner) return;
 
-  // 2) 组件类：默认使用 ActorComponent
-  const cls = ComponentClass ?? UE.ActorComponent.StaticClass();
+    // 默认类：ActorComponent（与蓝图中默认值一致）
+    const cls = ComponentClass ?? UE.ActorComponent.StaticClass();
 
-  // 3) 获取组件数组（Actor.K2_GetComponentsByClass）
-  const comps = owner.K2_GetComponentsByClass(cls) as UE.TArray<UE.ActorComponent>;
-  if (!comps || comps.Num() === 0) return;
+    // GetComponentsByClass -> TArray<ActorComponent>
+    const comps = owner.K2_GetComponentsByClass(cls) as UE.TArray<UE.ActorComponent>;
+    const num = comps ? comps.Num() : 0;
+    if (num <= 0) return;
 
-  // 读取蓝图变量 bSortOnOwningActorLocation（若不存在则默认为 false）
-  const sortOnOwner = (self as any).bSortOnOwningActorLocation === true;
+    for (let i = 0; i < num; i++) {
+      const comp = comps.Get(i);
+      if (!comp) continue;
 
-  // 4) 遍历组件
-  for (let i = 0; i < comps.Num(); i++) {
-    const ac = comps.Get(i);
-    if (!ac) continue;
+      // 动态转型到 PrimitiveComponent（蓝图里的“Cast To PrimitiveComponent”）
+      const prim = comp instanceof UE.PrimitiveComponent ? (comp as UE.PrimitiveComponent) : null;
+      if (!prim) continue;
 
-    // 动态转换为 PrimitiveComponent（蓝图里是 DynamicCast）
-    const prim = ac as unknown as UE.PrimitiveComponent;
+      // Select(False=TrueComponentLoc, True=OwnerActorLoc, Index=bSortOnOwningActorLocation)
+      const loc: UE.Vector = this.bSortOnOwningActorLocation
+        ? owner.K2_GetActorLocation()
+        : (prim as UE.SceneComponent).K2_GetComponentLocation(); // PrimitiveComponent 继承自 SceneComponent
 
-    // 运行时存在性检查：需要具备方法 SetTranslucentSortPriority
-    if (!prim || typeof (prim as any).SetTranslucentSortPriority !== 'function') {
-      continue; // cast failed
+      // 拆分向量 → 取 Y → 截断 → 作为半透明排序优先级（对应 BreakVector + FTrunc）
+      const priority = Math.trunc(loc.Y);
+
+      // SetTranslucentSortPriority
+      prim.SetTranslucentSortPriority(priority);
     }
-
-    // 5) 计算位置向量：根据 sortOnOwner 选择 Owner 或 组件自身的位置
-    const pos: UE.Vector = sortOnOwner
-      ? owner.K2_GetActorLocation()
-      : (prim as UE.SceneComponent).K2_GetComponentLocation();
-
-    const y = pos.Y;                // BreakVector -> Y
-    const priority = Math.trunc(y); // KismetMathLibrary.FTrunc
-
-    // 6) 设置半透明排序优先级
-    prim.SetTranslucentSortPriority(priority);
   }
 }
-
-// 可选：提供一个默认导出，便于在其他脚本中直接调用
-export default {
-  SortPriority,
-};
